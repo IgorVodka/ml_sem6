@@ -1,0 +1,17 @@
+{
+  "name": "dataset_preparer",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "request-promise": "^4.2.4",
+    "sharp": "^0.22.1",
+    "mkdirp-promise": "^5.0.1"
+  }
+}

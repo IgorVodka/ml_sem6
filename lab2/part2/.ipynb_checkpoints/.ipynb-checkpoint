@@ -1,0 +1,461 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Example of using pandasql library for data analysis"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "%matplotlib inline\n",
+    "import pandas as pd\n",
+    "import pandasql as ps\n",
+    "from datetime import datetime\n",
+    "import seaborn\n",
+    "import matplotlib.pyplot as plt\n",
+    "\n",
+    "%config InlineBackend.figure_format = 'svg'\n",
+    "from pylab import rcParams\n",
+    "rcParams['figure.figsize'] = 8, 5"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "pd.__version__"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "project_submissions = pd.read_csv('./data/project_submissions.csv')\n",
+    "daily_engagements = pd.read_csv('./data/daily_engagement.csv')\n",
+    "enrollments = pd.read_csv('./data/enrollments.csv')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Simple SQL query \n",
+    "getting accounts and date with maximum total time spent on Udacity"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# pandasql code\n",
+    "def example1_pandasql(daily_engagements):\n",
+    "    simple_query = '''\n",
+    "        SELECT \n",
+    "            acct, \n",
+    "            total_minutes_visited,\n",
+    "            utc_date\n",
+    "        FROM daily_engagements \n",
+    "        ORDER BY total_minutes_visited desc\n",
+    "        LIMIT 10\n",
+    "        '''\n",
+    "    return ps.sqldf(simple_query, locals())\n",
+    "\n",
+    "# pandas code\n",
+    "def example1_pandas(daily_engagements):\n",
+    "    return daily_engagements[['acct', 'total_minutes_visited', 'utc_date']].sort_values(by ='total_minutes_visited', ascending = False)[:10]"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "example1_pandasql(daily_engagements)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "example1_pandas(daily_engagements)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## SQL query with aggregating functions\n",
+    "Let's see whether there's weekly seasonality: on average students spent more time on weekends then on weekdays"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# ТУТ НЕ РАБОТАЛО. ДОБАВИЛ list() ВОКРУГ map()\n",
+    "\n",
+    "daily_engagements['weekday'] = list(map(lambda x: datetime.strptime(x, '%Y-%m-%d').strftime('%A'), daily_engagements.utc_date))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "daily_engagements.head()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# pandasql code\n",
+    "def example2_pandasql(daily_engagements):\n",
+    "    aggr_query = '''\n",
+    "        SELECT \n",
+    "            avg(total_minutes_visited) as total_minutes_visited,\n",
+    "            weekday\n",
+    "        FROM daily_engagements \n",
+    "        GROUP BY weekday\n",
+    "        '''\n",
+    "    return ps.sqldf(aggr_query, locals()).set_index('weekday')\n",
+    "\n",
+    "# pandas code\n",
+    "def example2_pandas(daily_engagements):\n",
+    "    return pd.DataFrame(daily_engagements.groupby('weekday').total_minutes_visited.mean())"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "weekday_engagement = example2_pandasql(daily_engagements)\n",
+    "weekday_engagement"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "example2_pandas(daily_engagements)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "week_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']\n",
+    "weekday_engagement.loc[week_order].plot(kind = 'bar', rot = 45, title = 'Total time spent on Udacity by weekday')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Joining tables\n",
+    "Let's see whether students that canceled program was spending less time on Udacity within first week of enrollment.\n",
+    "Note we need to filter out Udacity test users not to spoil statistics. Also we need to take into account the fact that student may join several times."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# pandasql code\n",
+    "def example3_pandasql(enrollments, daily_engagements):\n",
+    "    join_query = '''\n",
+    "        SELECT \n",
+    "            avg(avg_acct_total_minutes) as avg_total_minutes, \n",
+    "            status\n",
+    "        FROM\n",
+    "            (SELECT \n",
+    "                avg(total_minutes_visited) as avg_acct_total_minutes, \n",
+    "                status, \n",
+    "                account_key\n",
+    "            FROM\n",
+    "                (SELECT \n",
+    "                    e.account_key, \n",
+    "                    e.status,\n",
+    "                    de.total_minutes_visited,\n",
+    "                    (cast(strftime('%s',de.utc_date) as interger) - cast(strftime('%s',e.join_date) as interger))/(24*60*60) as days_since_joining,\n",
+    "                    (cast(strftime('%s',e.cancel_date) as interger) - cast(strftime('%s', de.utc_date) as interger))/(24*60*60) as days_before_cancel\n",
+    "                FROM enrollments as e JOIN daily_engagements as de ON (e.account_key = de.acct)\n",
+    "                WHERE (is_udacity = 0) AND (days_since_joining < 7) AND (days_since_joining >= 0)\n",
+    "                    AND ((days_before_cancel >= 0) OR (status = 'current'))\n",
+    "                )\n",
+    "            GROUP BY status, account_key)\n",
+    "        GROUP BY status\n",
+    "    '''\n",
+    "    return ps.sqldf(join_query, locals()).set_index('status')\n",
+    "\n",
+    "# pandas code\n",
+    "def example3_pandas(enrollments, daily_engagements):\n",
+    "    join_df = pd.merge(daily_engagements, \n",
+    "                   enrollments[enrollments.is_udacity == 0], \n",
+    "                   how = 'inner', \n",
+    "                   right_on ='account_key', \n",
+    "                   left_on = 'acct')\n",
+    "    join_df = join_df[['account_key', 'status', 'total_minutes_visited', 'utc_date', 'join_date', 'cancel_date']]\n",
+    "\n",
+    "    join_df['days_since_joining'] = map(lambda x: x.days, \n",
+    "                                        pd.to_datetime(join_df.utc_date) - pd.to_datetime(join_df.join_date))\n",
+    "\n",
+    "    join_df['before_cancel'] = (pd.to_datetime(join_df.utc_date) <= pd.to_datetime(join_df.cancel_date))\n",
+    "    join_df = join_df[join_df.before_cancel | (join_df.status == 'current')]\n",
+    "\n",
+    "    join_df = join_df[(join_df.days_since_joining < 7) & (join_df.days_since_joining >= 0)]\n",
+    "    avg_account_total_minutes = pd.DataFrame(join_df.groupby(['account_key', 'status'], as_index = False)\n",
+    "                                                     .total_minutes_visited.mean())\n",
+    "    avg_total_minutes= pd.DataFrame(avg_account_total_minutes.groupby('status').total_minutes_visited.mean())\n",
+    "    avg_total_minutes.columns = ['avg_total_minutes']\n",
+    "    return avg_total_minutes"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "example3_pandasql(enrollments, daily_engagements)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "example3_pandas(enrollments, daily_engagements)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Estimating time elapsed"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import time\n",
+    "\n",
+    "def count_mean_time(func, params, N =5):\n",
+    "    total_time = 0\n",
+    "    for i in range(N):\n",
+    "        time1 = time.time()\n",
+    "        if len(params) == 1:\n",
+    "            tmp_df = func(params[0])\n",
+    "        elif len(params) == 2:\n",
+    "            tmp_df = func(params[0], params[1])\n",
+    "        time2 = time.time()\n",
+    "        total_time += (time2 - time1)\n",
+    "    return total_time/N"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Example #1"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ex1_times = []\n",
+    "for count in range(1000, 137000, 1000):\n",
+    "    pandasql_time = count_mean_time(example1_pandasql, [daily_engagements[:count]])\n",
+    "    pandas_time = count_mean_time(example1_pandas, [daily_engagements[:count]])\n",
+    "    ex1_times.append({'count': count, 'pandasql_time': pandasql_time, 'pandas_time': pandas_time})"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ex1_times_df = pd.DataFrame(ex1_times)\n",
+    "ex1_times_df.columns = ['number of rows in daily_engagements', 'pandas time', 'pandasql time']\n",
+    "ex1_times_df = ex1_times_df.set_index('number of rows in daily_engagements')"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ax = ex1_times_df.plot(title = 'Example #1 time elapsed (seconds)', subplots = True)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Example #2"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ex2_times = []\n",
+    "for count in range(1000, 137000, 1000):\n",
+    "    pandasql_time = count_mean_time(example2_pandasql, [daily_engagements[:count]])\n",
+    "    pandas_time = count_mean_time(example2_pandas, [daily_engagements[:count]])\n",
+    "    ex2_times.append({'count': count, 'pandasql_time': pandasql_time, 'pandas_time': pandas_time})"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ex2_times_df = pd.DataFrame(ex2_times)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ex2_times_df.columns = ['number of rows in daily_engagements', 'pandas time', 'pandasql time']\n",
+    "ex2_times_df = ex2_times_df.set_index('number of rows in daily_engagements')"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ax = ex2_times_df.plot(title = 'Example #2 time elapsed (seconds)', subplots = True)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Example #3"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "all_users = enrollments.account_key.unique().tolist()\n",
+    "len(all_users)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {
+    "scrolled": true
+   },
+   "outputs": [],
+   "source": [
+    "ex3_times = []\n",
+    "for users_count in range(10, 1310, 10):\n",
+    "    users = all_users[:users_count]\n",
+    "    enrollments_sample = enrollments[enrollments.account_key.isin(users)]\n",
+    "    daily_engagements_sample = daily_engagements[daily_engagements.acct.isin(users)]\n",
+    "    count = daily_engagements_sample.shape[0]\n",
+    "    pandasql_time = count_mean_time(example3_pandasql, [enrollments_sample, daily_engagements_sample])\n",
+    "    pandas_time = count_mean_time(example3_pandas, [enrollments_sample, daily_engagements_sample])\n",
+    "    ex3_times.append({'count': count, 'pandasql_time': pandasql_time, 'pandas_time': pandas_time})"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ex3_times_df = pd.DataFrame(ex3_times).set_index('count')"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "ax = ex3_times_df.plot(title = 'Example #3 time elapsed')\n",
+    "ax.set_xlabel('number of rows in daily_engagements')\n",
+    "ax.set_ylabel('time, seconds')"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": []
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.6.6"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 1
+}
