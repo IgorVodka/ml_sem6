@@ -11,7 +11,7 @@
   "license": "ISC",
   "dependencies": {
     "request-promise": "^4.2.4",
-    "sharp": "^0.22.1",
+    "sharp": "^0.30.5",
     "mkdirp-promise": "^5.0.1"
   }
 }
